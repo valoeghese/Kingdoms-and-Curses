@@ -1,22 +1,22 @@
 {
   "schemaVersion": 1,
-  "id": "Kingdoms and Curses",
+  "id": "kingdoms_curses",
   "version": "1.0.0",
   
-  "name": "Kingdom Curses",
+  "name": "Kingdoms and Curses",
   "description": "Mod Description.",
   "authors": [
     "Me!"
   ],
   
   "icon": "assets/kingdom_curses/icon.png",
-  "license": "No Licence.",
+  "license": "Kingdoms and Curses Licence",
   
   "environment": "*",
   
   "entrypoints": {
     "main": [
-      "valoeghese.kingdom_curses.KingdomCurses"
+      "valoeghese.kingdomcurses.KingdomsAndCurses"
     ]
   },
   

@@ -1,8 +1,10 @@
 {
   "required": true,
-  "package": "valoeghese.kingdom_curses.mixin",
+  "package": "valoeghese.kingdomcurses.mixin",
   "compatibilityLevel": "JAVA_8",
   "mixins": [
+    "MixinPlayerEntity",
+    "MixinServerWorld"
   ],
   "client": [
   ],
