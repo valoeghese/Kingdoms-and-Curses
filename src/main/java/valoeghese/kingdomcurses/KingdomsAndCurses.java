@@ -15,6 +15,7 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Identifier;
+import net.minecraft.world.GameRules;
 import net.minecraft.world.World;
 
 public class KingdomsAndCurses implements ModInitializer {
@@ -37,17 +38,18 @@ public class KingdomsAndCurses implements ModInitializer {
 		// TODO
 		// - Kingdoms (based off of 2fc)
 		// - Curses
-		// - Short rest system
 	}
 
 	public static void longRest(World world) {
-		world.getPlayers().stream().filter(LivingEntity::isSleeping).forEach(playerEntity -> {
-			if (playerEntity.getHealth() < playerEntity.getMaxHealth() && playerEntity.getHungerManager().getFoodLevel() > 0) {
-				playerEntity.heal(playerEntity.getMaxHealth() / 2);
-				playerEntity.addExhaustion(20.0f);
-				stats(playerEntity).resetHealPoints();
-			}
-		});
+		if (world.getGameRules().getBoolean(GameRules.NATURAL_REGENERATION)) {
+			world.getPlayers().stream().filter(LivingEntity::isSleeping).forEach(playerEntity -> {
+				if (playerEntity.getHealth() < playerEntity.getMaxHealth() && playerEntity.getHungerManager().getFoodLevel() > 0) {
+					playerEntity.heal(playerEntity.getMaxHealth() / 2);
+					playerEntity.addExhaustion(30.0f);
+					stats(playerEntity).resetHealPoints();
+				}
+			});
+		}
 	}
 
 	public static PlayerStats stats(PlayerEntity player) {
