@@ -24,11 +24,14 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.registry.Registry;
 import net.minecraft.world.ChunkRegion;
 import net.minecraft.world.GameRules;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldAccess;
 import net.minecraft.world.chunk.Chunk;
+import net.minecraft.world.chunk.ChunkStatus;
+import net.minecraft.world.dimension.DimensionType;
 import net.minecraft.world.gen.feature.Feature;
 import valoeghese.kingdomcurses.kingdom.Kingdom;
 import valoeghese.kingdomcurses.kingdom.Voronoi;
@@ -90,7 +93,7 @@ public class KingdomsAndCurses implements ModInitializer {
 
 	public static Kingdom getKingdom(ServerWorld world, int x, int z) {
 		checkWorld(world);
-		return kingdomById(world, stats(world.getChunk(x >> 4, z >> 4)).getKingdom(x & 0xF, z & 0xF, (int) world.getSeed()), x, z);
+		return kingdomById(world, stats(world.getChunk(x >> 4, z >> 4, ChunkStatus.LIQUID_CARVERS)).getKingdom(x & 0xF, z & 0xF, (int) world.getSeed()), x, z);
 	}
 
 	public static Kingdom kingdomById(ServerWorld world, int kingdom, int x, int z) {
@@ -113,7 +116,7 @@ public class KingdomsAndCurses implements ModInitializer {
 				Block block = state.getBlock();
 				return Feature.isSoil(block) || block == Blocks.ICE || block == Blocks.STONE || block == Blocks.GRANITE || block == Blocks.DIORITE || block == Blocks.ANDESITE || block == Blocks.SAND || block == Blocks.GRAVEL;
 			})) {
-				return y;
+				return y + 1;
 			}
 		}
 
@@ -121,193 +124,201 @@ public class KingdomsAndCurses implements ModInitializer {
 	}
 
 	public static void genCity(ChunkRegion world, int startX, int startZ) {
-		int seed = (int) world.getSeed();
-		ServerWorld serverWorld = world.toServerWorld();
-		checkWorld(serverWorld);
+		if (!world.getDimension().hasFixedTime()) {
+			try {
+				int seed = (int) world.getSeed();
+				int seaLevel = world.getSeaLevel() - 2;
+				ServerWorld serverWorld = world.toServerWorld();
+				checkWorld(serverWorld);
 
-		boolean roadsX = 0 == ((startX >> 5) & 0b1);
-		boolean roadsZ = 0 == ((startZ >> 6) & 0b1);
-		final int houseLimit = CITY_SIZE - 10;
-		BlockPos.Mutable pos = new BlockPos.Mutable();
+				boolean roadsX = 0 == ((startX >> 5) & 0b1);
+				boolean roadsZ = 0 == ((startZ >> 6) & 0b1);
+				final int houseLimit = CITY_SIZE - 10;
+				BlockPos.Mutable pos = new BlockPos.Mutable();
 
-		for (int xo = 0; xo < 16; ++xo) {
-			int x = startX + xo;
-			pos.setX(x);
+				for (int xo = 0; xo < 16; ++xo) {
+					int x = startX + xo;
+					pos.setX(x);
 
-			for (int zo = 0; zo < 16; ++zo) {
-				int z = startZ + zo;
-				pos.setZ(z);
+					for (int zo = 0; zo < 16; ++zo) {
+						int z = startZ + zo;
+						pos.setZ(z);
 
-				// Determine Where in the kingdom we are
-				Kingdom kingdom = getKingdom(serverWorld, x, z);
+						// Determine Where in the kingdom we are
+						Kingdom kingdom = getKingdom(serverWorld, x, z);
 
-				Vec2i centre = kingdom.getCityCentre();
-				int dist = centre.manhattan(x, z);
+						Vec2i centre = kingdom.getCityCentre();
+						int dist = centre.manhattan(x, z);
 
-				if (dist > CITY_SIZE_OUTER) {
-					int y = getHeightForGeneration(world, x, z) - 1;
+						if (dist > CITY_SIZE_OUTER) {
+							int y = getHeightForGeneration(world, x, z) - 1;
 
-					if (y > 51) {
-						// Generate Kingdom Roads
-						Vec2i north = kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, 1, seed)).getCityCentre();
-						Vec2i east = kingdomById(serverWorld, kingdom.neighbourKingdomVec(1, 0, seed)).getCityCentre();
-						Vec2i south = kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, -1, seed)).getCityCentre();
-						Vec2i west = kingdomById(serverWorld, kingdom.neighbourKingdomVec(-1, 0, seed)).getCityCentre();
+							if (y > seaLevel) {
+								// Generate Kingdom Roads
+								Vec2i south = kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, 1, seed)).getCityCentre();
+								Vec2i east = kingdomById(serverWorld, kingdom.neighbourKingdomVec(1, 0, seed)).getCityCentre();
+								Vec2i north = kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, -1, seed)).getCityCentre();
+								Vec2i west = kingdomById(serverWorld, kingdom.neighbourKingdomVec(-1, 0, seed)).getCityCentre();
 
-						// write road if at a road location
-						if (isNear(centre, north, x, z) || isNear(centre, east, x, z)
-								|| isNear(centre, south, x, z) || isNear(centre, west, x, z)) {
-							pos.setY(y);
-							world.setBlockState(pos, Blocks.AIR.getDefaultState(), 3);
+								// write road if at a road location
+								if (isNear(centre, south, x, z) || isNear(centre, east, x, z)
+										|| isNear(centre, north, x, z) || isNear(centre, west, x, z)) {
+									pos.setY(y);
+									world.setBlockState(pos, Blocks.AIR.getDefaultState(), 3);
 
-							pos.setY(y - 1);
-							world.setBlockState(pos, Blocks.GRASS_PATH.getDefaultState(), 3);
+									pos.setY(y - 1);
+									world.setBlockState(pos, Blocks.GRASS_PATH.getDefaultState(), 3);
+								} else {
+									// generate paths at path locations
+									double path = PATH_NOISE.sample((double) x / 400.0, (double) z / 400.0);
+
+									if (path > 0 && path < 0.019) {
+										pos.setY(y);
+										world.setBlockState(pos, Blocks.AIR.getDefaultState(), 3);
+
+										pos.setY(y - 1);
+										world.setBlockState(pos, Blocks.GRASS_PATH.getDefaultState(), 3);
+									}
+								}
+							}
+						} else if (dist >= CITY_SIZE) {
+							final int height = (dist == CITY_SIZE || dist == CITY_SIZE_OUTER) ? 9 : 8;
+							int startY = getHeightForGeneration(world, x, z);
+
+							if (startY > seaLevel) {
+								Vec2i south = kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, 1, seed)).getCityCentre();
+								Vec2i east = kingdomById(serverWorld, kingdom.neighbourKingdomVec(1, 0, seed)).getCityCentre();
+								Vec2i north = kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, -1, seed)).getCityCentre();
+								Vec2i west = kingdomById(serverWorld, kingdom.neighbourKingdomVec(-1, 0, seed)).getCityCentre();
+
+								// write gates
+								if (isNear(centre, south, x, z) || isNear(centre, east, x, z)
+										|| isNear(centre, north, x, z) || isNear(centre, west, x, z)) {
+									for (int yo = 4; yo < height; ++yo) {
+										int y = startY + yo;
+										pos.setY(y);
+
+										if (!ServerWorld.isHeightInvalid(pos)) {
+											world.setBlockState(pos, Blocks.STONE_BRICKS.getDefaultState(), 3);
+										}
+									}
+								} else { // write wall
+									for (int yo = 0; yo < height; ++yo) {
+										int y = startY + yo;
+										pos.setY(y);
+
+										if (!ServerWorld.isHeightInvalid(pos)) {
+											world.setBlockState(pos, Blocks.STONE_BRICKS.getDefaultState(), 3);
+										}
+									}
+								}
+							}
 						} else {
-							// generate paths at path locations
-							double path = PATH_NOISE.sample((double) x / 400.0, (double) z / 400.0);
+							int y = getHeightForGeneration(world, x, z) - 1;
 
-							if (path > 0 && path < 0.019) {
-								pos.setY(y);
-								world.setBlockState(pos, Blocks.AIR.getDefaultState(), 3);
+							if (y > seaLevel) {
+								// Generate Cities
+								if (dist < houseLimit && xo == 8 && zo == 8) {
+									final int houseHeight = 5;
+									final int wallHeight = houseHeight;
 
-								pos.setY(y - 1);
-								world.setBlockState(pos, Blocks.GRASS_PATH.getDefaultState(), 3);
-							}
-						}
-					}
-				} else if (dist >= CITY_SIZE) {
-					final int height = (dist == CITY_SIZE || dist == CITY_SIZE_OUTER) ? 9 : 8;
-					int startY = getHeightForGeneration(world, x, z);
+									// Generate City House
+									// Floor and Walls
+									BlockPos.Mutable pos2 = new BlockPos.Mutable();
 
-					if (startY > 51) {
-						Vec2i north = kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, 1, seed)).getCityCentre();
-						Vec2i east = kingdomById(serverWorld, kingdom.neighbourKingdomVec(1, 0, seed)).getCityCentre();
-						Vec2i south = kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, -1, seed)).getCityCentre();
-						Vec2i west = kingdomById(serverWorld, kingdom.neighbourKingdomVec(-1, 0, seed)).getCityCentre();
+									for (int xoo = -5; xoo < 5; ++xoo) {
+										boolean xedge = xoo == -5 || xoo == 4;
+										int xx = x + xoo;
+										pos2.setX(xx);
 
-						// write gates
-						if (isNear(centre, north, x, z) || isNear(centre, east, x, z)
-								|| isNear(centre, south, x, z) || isNear(centre, west, x, z)) {
-							for (int yo = 4; yo < height; ++yo) {
-								int y = startY + yo;
-								pos.setY(y);
+										for (int zoo = -5; zoo < 5; ++zoo) {
+											int zz = z + zoo;
+											pos2.setZ(zz);
+											pos2.setY(y);
 
-								if (!ServerWorld.isHeightInvalid(pos)) {
-									world.setBlockState(pos, Blocks.STONE_BRICKS.getDefaultState(), 3);
-								}
-							}
-						} else { // write wall
-							for (int yo = 0; yo < height; ++yo) {
-								int y = startY + yo;
-								pos.setY(y);
+											if (!ServerWorld.isHeightInvalid(pos2)) {
+												world.setBlockState(pos2, Blocks.OAK_PLANKS.getDefaultState(), 3);
+											}
 
-								if (!ServerWorld.isHeightInvalid(pos)) {
-									world.setBlockState(pos, Blocks.STONE_BRICKS.getDefaultState(), 3);
-								}
-							}
-						}
-					}
-				} else {
-					int y = getHeightForGeneration(world, x, z) - 1;
+											if (xedge || zoo == -5 || zoo == 4) {
+												for (int yy = 0; yy < wallHeight; ++yy) {
+													pos2.setY(y + yy);
 
-					if (y > 51) {
-						// Generate Cities
-						if (dist < houseLimit && xo == 8 && zo == 8) {
-							final int houseHeight = 5;
-							final int wallHeight = houseHeight;
-
-							// Generate City House
-							// Floor and Walls
-							BlockPos.Mutable pos2 = new BlockPos.Mutable();
-
-							for (int xoo = -5; xoo < 5; ++xoo) {
-								boolean xedge = xoo == -5 || xoo == 4;
-								int xx = x + xoo;
-								pos2.setX(xx);
-
-								for (int zoo = -5; zoo < 5; ++zoo) {
-									int zz = z + zoo;
-									pos2.setZ(zz);
-									pos2.setY(y);
-
-									if (!ServerWorld.isHeightInvalid(pos2)) {
-										world.setBlockState(pos, Blocks.OAK_PLANKS.getDefaultState(), 3);
+													if (!ServerWorld.isHeightInvalid(pos2)) {
+														world.setBlockState(pos2, Blocks.BRICKS.getDefaultState(), 3);
+													}
+												}
+											}
+										}
 									}
 
-									if (xedge || zoo == -5 || zoo == 4) {
-										for (int yy = 0; yy < wallHeight; ++yy) {
+									// Roof
+									for (int yy = -1; yy < 2; ++yy) {
+										int width = 6 - yy;
+										int finalY = y + yy + houseHeight;
+										pos2.setY(finalY);
+
+										int l = -width;
+										int h = width - 1;
+
+										for (int xoo = -width; xoo < width; ++xoo) {
+											int finalX = x + xoo;
+											pos2.setX(finalX);
+
+											for (int zoo = -width; zoo < width; ++zoo) {
+												int finalZ = z + zoo;
+												pos2.setZ(finalZ);
+
+												if (yy > -1 || zoo == l || zoo == h || xoo == l || xoo == h) {
+													if (!ServerWorld.isHeightInvalid(pos2)) {
+														world.setBlockState(pos2, Blocks.STONE_BRICKS.getDefaultState(), 3);
+													}
+												}
+											}
+										}
+									}
+
+									// Pillars
+									for (int yy = 0; yy < houseHeight; ++yy) {
+										if (y + yy < 256) {
 											pos2.setY(y + yy);
+											pos2.setX(x - 6);
+											pos2.setZ(z - 6);
 
-											if (!ServerWorld.isHeightInvalid(pos2)) {
-												world.setBlockState(pos, Blocks.BRICKS.getDefaultState(), 3);
-											}
+											world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
+
+											pos2.setX(x + 5);
+											pos2.setZ(z + 5);
+
+											world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
+
+											pos2.setZ(z - 6);
+
+											world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
+
+											pos2.setX(x - 6);
+											pos2.setZ(z + 5);
+
+											world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
 										}
 									}
 								}
-							}
 
-							// Roof
-							for (int yy = -1; yy < 2; ++yy) {
-								int width = 6 - yy;
-								int finalY = y + yy + houseHeight;
-								pos2.setY(finalY);
+								if ((roadsX && xo < 2) || (roadsZ && zo < 3)) {
+									// Generate City Roads
+									pos.setY(y);
+									world.setBlockState(pos, Blocks.AIR.getDefaultState(), 3);
 
-								int l = -width;
-								int h = width - 1;
-
-								for (int xoo = -width; xoo < width; ++xoo) {
-									int finalX = x + xoo;
-									pos2.setX(finalX);
-
-									for (int zoo = -width; zoo < width; ++zoo) {
-										int finalZ = z + zoo;
-										pos2.setZ(finalZ);
-
-										if (yy > -1 || zoo == l || zoo == h || xoo == l || xoo == h) {
-											if (!ServerWorld.isHeightInvalid(pos2)) {
-												world.setBlockState(pos, Blocks.STONE_BRICKS.getDefaultState(), 3);
-											}
-										}
-									}
+									pos.setY(y - 1);
+									world.setBlockState(pos, Blocks.GRASS_PATH.getDefaultState(), 3);
 								}
 							}
-
-							// Pillars
-							for (int yy = 0; yy < houseHeight; ++yy) {
-								if (y + yy < 256) {
-									pos2.setY(y + yy);
-									pos2.setX(x - 6);
-									pos2.setZ(z - 6);
-
-									world.setBlockState(pos, Blocks.OAK_LOG.getDefaultState(), 3);
-
-									pos2.setX(x + 5);
-									pos2.setZ(z + 5);
-
-									world.setBlockState(pos, Blocks.OAK_LOG.getDefaultState(), 3);
-
-									pos2.setZ(z - 6);
-
-									world.setBlockState(pos, Blocks.OAK_LOG.getDefaultState(), 3);
-
-									pos2.setX(x - 6);
-									pos2.setZ(z + 5);
-
-									world.setBlockState(pos, Blocks.OAK_LOG.getDefaultState(), 3);
-								}
-							}
-						}
-
-						if ((roadsX && xo < 2) || (roadsZ && zo < 3)) {
-							// Generate City Roads
-							pos.setY(y);
-							world.setBlockState(pos, Blocks.AIR.getDefaultState(), 3);
-
-							pos.setY(y - 1);
-							world.setBlockState(pos, Blocks.GRASS_PATH.getDefaultState(), 3);
 						}
 					}
 				}
+			} catch (Exception e) {
+				e.printStackTrace();
+				throw new RuntimeException("Exception generating cities", e);
 			}
 		}
 	}
