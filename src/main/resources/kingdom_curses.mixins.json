@@ -3,6 +3,7 @@
   "package": "valoeghese.kingdomcurses.mixin",
   "compatibilityLevel": "JAVA_8",
   "mixins": [
+    "MixinChunkGenerator",
     "MixinHungerManager",
     "MixinLivingEntity",
     "MixinPlayerEntity",
