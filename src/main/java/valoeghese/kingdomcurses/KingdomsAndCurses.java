@@ -14,24 +14,27 @@ import nerdhub.cardinal.components.api.event.EntityComponentCallback;
 import nerdhub.cardinal.components.api.util.EntityComponents;
 import nerdhub.cardinal.components.api.util.RespawnCopyStrategy;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v1.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.server.command.CommandManager;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.text.LiteralText;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.registry.Registry;
 import net.minecraft.world.ChunkRegion;
 import net.minecraft.world.GameRules;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldAccess;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkStatus;
-import net.minecraft.world.dimension.DimensionType;
 import net.minecraft.world.gen.feature.Feature;
 import valoeghese.kingdomcurses.kingdom.Kingdom;
 import valoeghese.kingdomcurses.kingdom.Voronoi;
@@ -56,6 +59,24 @@ public class KingdomsAndCurses implements ModInitializer {
 		AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
 			stats(player).attackedAt(world.getTime());
 			return ActionResult.PASS;
+		});
+
+		CommandRegistrationCallback.EVENT.register((ctxt, d) -> {
+			ctxt.register(CommandManager.literal("nearestcity")
+					.requires(stack -> stack.hasPermissionLevel(2))
+					.executes(context -> {
+						Entity entity = context.getSource().getEntity();
+
+						if (entity != null && entity instanceof PlayerEntity) {
+							ServerPlayerEntity pe = context.getSource().getPlayer();
+							BlockPos pos = pe.getBlockPos();
+							int px = pos.getX();
+							int pz = pos.getZ();
+							context.getSource().sendFeedback(new LiteralText(getKingdom((ServerWorld) pe.getEntityWorld(), px, pz).getCityCentre().toString()), false);
+						}
+
+						return 1;
+					}));
 		});
 
 		// TODO
@@ -161,8 +182,8 @@ public class KingdomsAndCurses implements ModInitializer {
 								Vec2i west = kingdomById(serverWorld, kingdom.neighbourKingdomVec(-1, 0, seed)).getCityCentre();
 
 								// write road if at a road location
-								if (isNear(centre, south, x, z) || isNear(centre, east, x, z)
-										|| isNear(centre, north, x, z) || isNear(centre, west, x, z)) {
+								if (isNearLineBetween(centre, south, x, z, 7) || isNearLineBetween(centre, east, x, z, 7)
+										|| isNearLineBetween(centre, north, x, z, 7) || isNearLineBetween(centre, west, x, z, 7)) {
 									pos.setY(y);
 									world.setBlockState(pos, Blocks.AIR.getDefaultState(), 3);
 
@@ -192,8 +213,8 @@ public class KingdomsAndCurses implements ModInitializer {
 								Vec2i west = kingdomById(serverWorld, kingdom.neighbourKingdomVec(-1, 0, seed)).getCityCentre();
 
 								// write gates
-								if (isNear(centre, south, x, z) || isNear(centre, east, x, z)
-										|| isNear(centre, north, x, z) || isNear(centre, west, x, z)) {
+								if (isNearLineBetween(centre, south, x, z, 7) || isNearLineBetween(centre, east, x, z, 7)
+										|| isNearLineBetween(centre, north, x, z, 7) || isNearLineBetween(centre, west, x, z, 7)) {
 									for (int yo = 4; yo < height; ++yo) {
 										int y = startY + yo;
 										pos.setY(y);
@@ -202,6 +223,12 @@ public class KingdomsAndCurses implements ModInitializer {
 											world.setBlockState(pos, Blocks.STONE_BRICKS.getDefaultState(), 3);
 										}
 									}
+
+									pos.setY(startY - 1);
+									world.setBlockState(pos, Blocks.AIR.getDefaultState(), 3);
+
+									pos.setY(startY - 2);
+									world.setBlockState(pos, Blocks.GRASS_PATH.getDefaultState(), 3);
 								} else { // write wall
 									for (int yo = 0; yo < height; ++yo) {
 										int y = startY + yo;
@@ -323,17 +350,18 @@ public class KingdomsAndCurses implements ModInitializer {
 		}
 	}
 
-	private static boolean isNear(Vec2i locA, Vec2i locB, int x, int y) {
+	private static boolean isNearLineBetween(Vec2i locA, Vec2i locB, int x, int y, int threshold) {
 		float m = (float) (locB.getY() - locA.getY()) / (float) (locB.getX() - locA.getX());
 		float targetY = m * x + locA.getY() - m * locA.getX();
-		return Math.abs(y - targetY) < 5;
+		return Math.abs(y - targetY) < threshold;
 	}
 
 	private static ServerWorld worldCache;
 	private static Int2ObjectMap<Kingdom> kingdomIdMap = new Int2ObjectArrayMap<>();
 
+	//	public static final SpawnEntry VILLAGER_ENTRY = new SpawnEntry(EntityType.VILLAGER, 100, 3, 4);
 	private static final Noise PATH_NOISE = new Noise(new Random(69420));
-	public static final int CITY_SIZE = 90;
+	public static final int CITY_SIZE = 115;
 	public static final int CITY_SIZE_OUTER = CITY_SIZE + 5;
 
 	public static final ComponentType<PlayerStats> PLAYER_STATS = ComponentRegistry.INSTANCE.registerIfAbsent(new Identifier("kingdom_curses", "player_stats"), PlayerStats.class);
