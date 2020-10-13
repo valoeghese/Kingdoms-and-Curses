@@ -5,6 +5,7 @@ import java.util.Random;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import io.github.fabriccommunity.events.world.EntitySpawnCallback;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import nerdhub.cardinal.components.api.ComponentRegistry;
@@ -19,8 +20,14 @@ import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
+import net.minecraft.data.client.model.BlockStateVariantMap.TriFunction;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.EntityType;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.SpawnReason;
+import net.minecraft.entity.effect.StatusEffectInstance;
+import net.minecraft.entity.effect.StatusEffects;
+import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -31,6 +38,7 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.ChunkRegion;
 import net.minecraft.world.GameRules;
+import net.minecraft.world.ServerWorldAccess;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldAccess;
 import net.minecraft.world.chunk.Chunk;
@@ -50,7 +58,7 @@ public class KingdomsAndCurses implements ModInitializer {
 
 		ChunkComponentCallback.EVENT.register((chunk, components) -> components.put(CHUNK_STATS, new ChunkStats(chunk)));
 
-		// TODO use custom callbacks that run afterwards, only on success
+		// TODO use custom callbacks that run afterwards, only on success?
 		AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
 			stats(player).attackedAt(world.getTime());
 			return ActionResult.PASS;
@@ -59,6 +67,23 @@ public class KingdomsAndCurses implements ModInitializer {
 		AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
 			stats(player).attackedAt(world.getTime());
 			return ActionResult.PASS;
+		});
+
+		EntitySpawnCallback.POST.register((entity, world, pos, reason) -> {
+			if (reason != SpawnReason.SPAWN_EGG) {
+				Curse curse = Curse.getCurse(world.toServerWorld(), getKingdom(world.toServerWorld(), (int) pos.getX(), (int) pos.getZ()));
+				EntityType<?> type = entity.getType();
+
+				switch (curse) {
+				case NECROMANCY:
+					if (type == EntityType.ZOMBIE || type == EntityType.SKELETON) {
+						((LivingEntity) entity).applyStatusEffect(new StatusEffectInstance(StatusEffects.HEALTH_BOOST, Integer.MAX_VALUE, world.getRandom().nextInt(3) + 2, true, false));
+					}
+					break;
+				default:
+					break;
+				}
+			}
 		});
 
 		CommandRegistrationCallback.EVENT.register((ctxt, d) -> {
@@ -79,8 +104,26 @@ public class KingdomsAndCurses implements ModInitializer {
 					}));
 		});
 
+		CommandRegistrationCallback.EVENT.register((ctxt, d) -> {
+			ctxt.register(CommandManager.literal("kingdom")
+					.requires(stack -> stack.hasPermissionLevel(2))
+					.executes(context -> {
+						Entity entity = context.getSource().getEntity();
+
+						if (entity != null && entity instanceof PlayerEntity) {
+							ServerPlayerEntity pe = context.getSource().getPlayer();
+							BlockPos pos = pe.getBlockPos();
+							int px = pos.getX();
+							int pz = pos.getZ();
+							Kingdom kingdom = getKingdom((ServerWorld) pe.getEntityWorld(), px, pz);
+							context.getSource().sendFeedback(new LiteralText(kingdom.toString() + " (" + String.valueOf(Curse.getCurse(pe.getServerWorld(), kingdom)) + ")"), false);
+						}
+
+						return 1;
+					}));
+		});
+
 		// TODO
-		// - Kingdoms (based off of 2fc)
 		// - Curses
 	}
 
@@ -172,7 +215,7 @@ public class KingdomsAndCurses implements ModInitializer {
 						int dist = centre.manhattan(x, z);
 
 						if (dist > CITY_SIZE_OUTER) {
-							int y = getHeightForGeneration(world, x, z) - 1;
+							int y = getHeightForGeneration(world, x, z);// - 1;
 
 							if (y > seaLevel) {
 								// Generate Kingdom Roads
@@ -368,4 +411,21 @@ public class KingdomsAndCurses implements ModInitializer {
 	public static final ComponentType<ChunkStats> CHUNK_STATS = ComponentRegistry.INSTANCE.registerIfAbsent(new Identifier("kingdom_curses", "chunk_stats"), ChunkStats.class);
 
 	public static final Logger LOGGER = LogManager.getLogger("Kingdoms and Curses");
+
+	public static void spawnNecromancy(Random random, ServerWorldAccess world, int x, int z, TriFunction<EntityType<?>, Integer, Integer, BlockPos> getEntitySpawn) {
+		int target = random.nextInt(3) + 1;
+
+		for (int i = 0; i < target; ++i) {
+			int ex = x + random.nextInt(16);
+			int ez = z + random.nextInt(16);
+
+			MobEntity entity = (random.nextInt(3) == 0 ? EntityType.ZOMBIE : EntityType.SKELETON).create(world.toServerWorld());
+			BlockPos pos = getEntitySpawn.apply(entity.getType(), ex, ez);
+			entity.refreshPositionAndAngles(pos, random.nextFloat() * 360.0f, 0.0f);
+			entity.headYaw = entity.yaw;
+			entity.bodyYaw = entity.yaw;
+			entity.initialize(world, world.getLocalDifficulty(pos), SpawnReason.NATURAL, null, null);
+			world.spawnEntityAndPassengers(entity);
+		}
+	}
 }

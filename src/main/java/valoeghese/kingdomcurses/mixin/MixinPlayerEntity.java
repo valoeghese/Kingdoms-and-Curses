@@ -24,9 +24,4 @@ public abstract class MixinPlayerEntity extends LivingEntity {
 	private void onCanFoodHeal(CallbackInfoReturnable<Boolean> cir) {
 		cir.setReturnValue(cir.getReturnValueZ() && KingdomsAndCurses.stats((PlayerEntity) (Object) this).allowNaturalHeal(this.world.getTime()));
 	}
-
-	/*@Inject(at = @At("RETURN"), method = "tick")
-	private void tick(CallbackInfo info) {
-		KingdomsAndCurses.stats((PlayerEntity) (Object) this).tick();
-	}*/
 }
