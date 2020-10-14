@@ -6,6 +6,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import io.github.fabriccommunity.events.world.EntitySpawnCallback;
+import io.github.fabriccommunity.events.world.WorldGenEvents;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import nerdhub.cardinal.components.api.ComponentRegistry;
@@ -28,6 +29,7 @@ import net.minecraft.entity.SpawnReason;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.MobEntity;
+import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -41,8 +43,10 @@ import net.minecraft.world.GameRules;
 import net.minecraft.world.ServerWorldAccess;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldAccess;
+import net.minecraft.world.biome.Biome;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkStatus;
+import net.minecraft.world.gen.ChunkRandom;
 import net.minecraft.world.gen.feature.Feature;
 import valoeghese.kingdomcurses.kingdom.Kingdom;
 import valoeghese.kingdomcurses.kingdom.Voronoi;
@@ -123,6 +127,43 @@ public class KingdomsAndCurses implements ModInitializer {
 					}));
 		});
 
+		WorldGenEvents.GENERATE_FEATURES_START.register((gen, region, structures) -> {
+			KingdomsAndCurses.genCity(region, region.getCenterChunkX() * 16, region.getCenterChunkZ() * 16);
+			return false;
+		});
+
+		WorldGenEvents.POPULATE_ENTITIES.register((world, biome, chunkX, chunkZ, random, spawnPosGetter) -> {
+			int z = chunkZ << 4;
+			int x = chunkX << 4;
+
+			Kingdom kingdom = KingdomsAndCurses.getKingdom(world.toServerWorld(), x, z);
+
+			if (biome.getCategory() != Biome.Category.OCEAN) {
+				int dist = kingdom.getCityCentre().manhattan(x, z);
+
+				if (dist < KingdomsAndCurses.CITY_SIZE) {
+					int target = random.nextInt(3) + 1;
+
+					for (int i = 0; i < target; ++i) {
+						int ex = x + random.nextInt(16);
+						int ez = z + random.nextInt(16);
+
+						VillagerEntity villager = EntityType.VILLAGER.create(world.toServerWorld());
+						BlockPos pos = spawnPosGetter.getEntitySpawnPos(world, villager.getType(), ex, ez);
+						villager.refreshPositionAndAngles(pos, random.nextFloat() * 360.0f, 0.0f);
+						villager.headYaw = villager.yaw;
+						villager.bodyYaw = villager.yaw;
+						villager.initialize(world, world.getLocalDifficulty(pos), SpawnReason.STRUCTURE, null, null);
+						world.spawnEntityAndPassengers(villager);
+					}
+				} else if (Curse.getCurse(world.toServerWorld(), kingdom) == Curse.NECROMANCY && dist > KingdomsAndCurses.CITY_SIZE_OUTER + 16) {
+					KingdomsAndCurses.spawnNecromancy(random, world, x, z, (ent, ex, ez) -> spawnPosGetter.getEntitySpawnPos(world, ent, ex, ez));
+				}
+			} else if (Curse.getCurse(world.toServerWorld(), kingdom) == Curse.NECROMANCY) {
+				KingdomsAndCurses.spawnNecromancy(random, world, x, z, (ent, ex, ez) -> spawnPosGetter.getEntitySpawnPos(world, ent, ex, ez));
+			}
+		});
+
 		// TODO
 		// - Curses
 	}
@@ -190,6 +231,9 @@ public class KingdomsAndCurses implements ModInitializer {
 	public static void genCity(ChunkRegion world, int startX, int startZ) {
 		if (!world.getDimension().hasFixedTime()) {
 			try {
+				ChunkRandom rand = new ChunkRandom(world.getSeed());
+				rand.setPopulationSeed(world.getSeed(), startX, startZ);
+
 				int seed = (int) world.getSeed();
 				int seaLevel = world.getSeaLevel() - 2;
 				ServerWorld serverWorld = world.toServerWorld();
@@ -289,88 +333,45 @@ public class KingdomsAndCurses implements ModInitializer {
 							if (y > seaLevel) {
 								// Generate Cities
 								if (dist < houseLimit && xo == 8 && zo == 8) {
-									final int houseHeight = 5;
-									final int wallHeight = houseHeight;
+									switch (rand.nextInt(6)) {
+									case 0:
+									case 1:
+									case 2:
+									case 3:
+										generateHouse(world, rand, x, y, z);
+										break;
+									case 4:
+										BlockPos.Mutable pos2 = new BlockPos.Mutable();
 
-									// Generate City House
-									// Floor and Walls
-									BlockPos.Mutable pos2 = new BlockPos.Mutable();
+										for (int xoo = -2; xoo <= 2; ++xoo) {
+											pos2.setX(x + xo + xoo);
+											boolean xedge = xoo == -2 || xoo == 2;
 
-									for (int xoo = -5; xoo < 5; ++xoo) {
-										boolean xedge = xoo == -5 || xoo == 4;
-										int xx = x + xoo;
-										pos2.setX(xx);
+											for (int zoo = -2; zoo <= 2; ++zoo) { 
+												pos2.setZ(z + zo + zoo);
+												boolean zedge = zoo == -2 || zoo == 2;
+												int height = 0;
 
-										for (int zoo = -5; zoo < 5; ++zoo) {
-											int zz = z + zoo;
-											pos2.setZ(zz);
-											pos2.setY(y);
+												if (xedge || zedge) {
+													height = 1;
+												} else if (xoo == 0 && zoo == 0) {
+													height = 2;
+												}
 
-											if (!ServerWorld.isHeightInvalid(pos2)) {
-												world.setBlockState(pos2, Blocks.OAK_PLANKS.getDefaultState(), 3);
-											}
+												for (int yoo = 0; yoo <= height; ++yoo) {
+													pos2.setY(y + yoo);
+													world.setBlockState(pos2, Blocks.SMOOTH_STONE.getDefaultState(), 3);
+												}
 
-											if (xedge || zoo == -5 || zoo == 4) {
-												for (int yy = 0; yy < wallHeight; ++yy) {
-													pos2.setY(y + yy);
-
-													if (!ServerWorld.isHeightInvalid(pos2)) {
-														world.setBlockState(pos2, Blocks.BRICKS.getDefaultState(), 3);
-													}
+												if (height == 2) {
+													pos2.setY(y + 3);
+													world.setBlockState(pos2, Blocks.WATER.getDefaultState(), 3);
 												}
 											}
 										}
-									}
-
-									// Roof
-									for (int yy = -1; yy < 2; ++yy) {
-										int width = 6 - yy;
-										int finalY = y + yy + houseHeight;
-										pos2.setY(finalY);
-
-										int l = -width;
-										int h = width - 1;
-
-										for (int xoo = -width; xoo < width; ++xoo) {
-											int finalX = x + xoo;
-											pos2.setX(finalX);
-
-											for (int zoo = -width; zoo < width; ++zoo) {
-												int finalZ = z + zoo;
-												pos2.setZ(finalZ);
-
-												if (yy > -1 || zoo == l || zoo == h || xoo == l || xoo == h) {
-													if (!ServerWorld.isHeightInvalid(pos2)) {
-														world.setBlockState(pos2, Blocks.STONE_BRICKS.getDefaultState(), 3);
-													}
-												}
-											}
-										}
-									}
-
-									// Pillars
-									for (int yy = 0; yy < houseHeight; ++yy) {
-										if (y + yy < 256) {
-											pos2.setY(y + yy);
-											pos2.setX(x - 6);
-											pos2.setZ(z - 6);
-
-											world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
-
-											pos2.setX(x + 5);
-											pos2.setZ(z + 5);
-
-											world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
-
-											pos2.setZ(z - 6);
-
-											world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
-
-											pos2.setX(x - 6);
-											pos2.setZ(z + 5);
-
-											world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
-										}
+										break;
+									case 5: // nil
+										break;
 									}
 								}
 
@@ -389,6 +390,95 @@ public class KingdomsAndCurses implements ModInitializer {
 			} catch (Exception e) {
 				e.printStackTrace();
 				throw new RuntimeException("Exception generating cities", e);
+			}
+		}
+	}
+
+	private static void generateHouse(ChunkRegion world, ChunkRandom rand, int x, int y, int z) {
+		x += rand.nextInt(3) - 1;
+		z += rand.nextInt(3) - 1;
+
+		final int houseHeight = 4 + rand.nextInt(3);
+		final int wallHeight = houseHeight;
+
+		// Generate City House
+		// Floor and Walls
+		BlockPos.Mutable pos2 = new BlockPos.Mutable();
+
+		for (int xoo = -5; xoo < 5; ++xoo) {
+			boolean xedge = xoo == -5 || xoo == 4;
+			int xx = x + xoo;
+			pos2.setX(xx);
+
+			for (int zoo = -5; zoo < 5; ++zoo) {
+				int zz = z + zoo;
+				pos2.setZ(zz);
+				pos2.setY(y);
+
+				if (!ServerWorld.isHeightInvalid(pos2)) {
+					world.setBlockState(pos2, Blocks.OAK_PLANKS.getDefaultState(), 3);
+				}
+
+				if (xedge || zoo == -5 || zoo == 4) {
+					for (int yy = 0; yy < wallHeight; ++yy) {
+						pos2.setY(y + yy);
+
+						if (!ServerWorld.isHeightInvalid(pos2)) {
+							world.setBlockState(pos2, Blocks.BRICKS.getDefaultState(), 3);
+						}
+					}
+				}
+			}
+		}
+
+		// Roof
+		for (int yy = -1; yy < 2; ++yy) {
+			int width = 6 - yy;
+			int finalY = y + yy + houseHeight;
+			pos2.setY(finalY);
+
+			int l = -width;
+			int h = width - 1;
+
+			for (int xoo = -width; xoo < width; ++xoo) {
+				int finalX = x + xoo;
+				pos2.setX(finalX);
+
+				for (int zoo = -width; zoo < width; ++zoo) {
+					int finalZ = z + zoo;
+					pos2.setZ(finalZ);
+
+					if (yy > -1 || zoo == l || zoo == h || xoo == l || xoo == h) {
+						if (!ServerWorld.isHeightInvalid(pos2)) {
+							world.setBlockState(pos2, Blocks.STONE_BRICKS.getDefaultState(), 3);
+						}
+					}
+				}
+			}
+		}
+
+		// Pillars
+		for (int yy = 0; yy < houseHeight; ++yy) {
+			if (y + yy < 256) {
+				pos2.setY(y + yy);
+				pos2.setX(x - 6);
+				pos2.setZ(z - 6);
+
+				world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
+
+				pos2.setX(x + 5);
+				pos2.setZ(z + 5);
+
+				world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
+
+				pos2.setZ(z - 6);
+
+				world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
+
+				pos2.setX(x - 6);
+				pos2.setZ(z + 5);
+
+				world.setBlockState(pos2, Blocks.OAK_LOG.getDefaultState(), 3);
 			}
 		}
 	}
