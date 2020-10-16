@@ -38,10 +38,10 @@ public class MixinSpawnHelper {
 				int dist = kingdom.getCityCentre().manhattan(x, z);
 
 				if (Curse.getCurse(world.toServerWorld(), kingdom) == Curse.NECROMANCY && dist > KingdomsAndCurses.CITY_SIZE_OUTER + 16) {
-					KingdomsAndCurses.spawnNecromancy(world.getRandom(), world, x, z, (ent, ex, ez) -> spawnPos);
+					KingdomsAndCurses.spawnNecromancy(world.getRandom(), world, x, z, true, (ent, ex, ez) -> spawnPos);
 				}
 			} else if (Curse.getCurse(world.toServerWorld(), kingdom) == Curse.NECROMANCY) {
-				KingdomsAndCurses.spawnNecromancy(world.getRandom(), world, x, z, (ent, ex, ez) -> spawnPos);
+				KingdomsAndCurses.spawnNecromancy(world.getRandom(), world, x, z, true, (ent, ex, ez) -> spawnPos);
 			}
 		}
 	}

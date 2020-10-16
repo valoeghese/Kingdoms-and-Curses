@@ -26,6 +26,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.SpawnReason;
+import net.minecraft.entity.SpawnRestriction;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.MobEntity;
@@ -38,6 +39,7 @@ import net.minecraft.text.LiteralText;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import net.minecraft.world.ChunkRegion;
 import net.minecraft.world.GameRules;
 import net.minecraft.world.ServerWorldAccess;
@@ -157,10 +159,10 @@ public class KingdomsAndCurses implements ModInitializer {
 						world.spawnEntityAndPassengers(villager);
 					}
 				} else if (Curse.getCurse(world.toServerWorld(), kingdom) == Curse.NECROMANCY && dist > KingdomsAndCurses.CITY_SIZE_OUTER + 16) {
-					KingdomsAndCurses.spawnNecromancy(random, world, x, z, (ent, ex, ez) -> spawnPosGetter.getEntitySpawnPos(world, ent, ex, ez));
+					KingdomsAndCurses.spawnNecromancy(random, world, x, z, false, (ent, ex, ez) -> spawnPosGetter.getEntitySpawnPos(world, ent, ex, ez));
 				}
 			} else if (Curse.getCurse(world.toServerWorld(), kingdom) == Curse.NECROMANCY) {
-				KingdomsAndCurses.spawnNecromancy(random, world, x, z, (ent, ex, ez) -> spawnPosGetter.getEntitySpawnPos(world, ent, ex, ez));
+				KingdomsAndCurses.spawnNecromancy(random, world, x, z, false, (ent, ex, ez) -> spawnPosGetter.getEntitySpawnPos(world, ent, ex, ez));
 			}
 		});
 
@@ -344,11 +346,11 @@ public class KingdomsAndCurses implements ModInitializer {
 										BlockPos.Mutable pos2 = new BlockPos.Mutable();
 
 										for (int xoo = -2; xoo <= 2; ++xoo) {
-											pos2.setX(x + xo + xoo);
+											pos2.setX(x + xo - 8 + xoo);
 											boolean xedge = xoo == -2 || xoo == 2;
 
 											for (int zoo = -2; zoo <= 2; ++zoo) { 
-												pos2.setZ(z + zo + zoo);
+												pos2.setZ(z + zo - 8 + zoo);
 												boolean zedge = zoo == -2 || zoo == 2;
 												int height = 0;
 
@@ -424,6 +426,12 @@ public class KingdomsAndCurses implements ModInitializer {
 						pos2.setY(y + yy);
 
 						if (!ServerWorld.isHeightInvalid(pos2)) {
+							if (y > 0 && y < 3) {
+								if (xedge && zoo == 0) {
+									continue;
+								}
+							}
+
 							world.setBlockState(pos2, Blocks.BRICKS.getDefaultState(), 3);
 						}
 					}
@@ -502,20 +510,45 @@ public class KingdomsAndCurses implements ModInitializer {
 
 	public static final Logger LOGGER = LogManager.getLogger("Kingdoms and Curses");
 
-	public static void spawnNecromancy(Random random, ServerWorldAccess world, int x, int z, TriFunction<EntityType<?>, Integer, Integer, BlockPos> getEntitySpawn) {
+	public static void spawnNecromancy(Random random, ServerWorldAccess world, int x, int z, boolean nonpop, TriFunction<EntityType<?>, Integer, Integer, BlockPos> getEntitySpawn) {
 		int target = random.nextInt(3) + 1;
 
-		for (int i = 0; i < target; ++i) {
-			int ex = x + random.nextInt(16);
-			int ez = z + random.nextInt(16);
+		if (world.getEntitiesByClass(MobEntity.class, new Box(x, 0, z, x + 16, 256, z + 16), me -> true).size() < 60) {
+			for (int i = 0; i < target; ++i) {
+				int ex = x + random.nextInt(16);
+				int ez = z + random.nextInt(16);
 
-			MobEntity entity = (random.nextInt(3) == 0 ? EntityType.ZOMBIE : EntityType.SKELETON).create(world.toServerWorld());
-			BlockPos pos = getEntitySpawn.apply(entity.getType(), ex, ez);
-			entity.refreshPositionAndAngles(pos, random.nextFloat() * 360.0f, 0.0f);
-			entity.headYaw = entity.yaw;
-			entity.bodyYaw = entity.yaw;
-			entity.initialize(world, world.getLocalDifficulty(pos), SpawnReason.NATURAL, null, null);
-			world.spawnEntityAndPassengers(entity);
+				MobEntity entity = (random.nextInt(3) == 0 ? EntityType.ZOMBIE : EntityType.SKELETON).create(world.toServerWorld());
+				BlockPos pos = getEntitySpawn.apply(entity.getType(), ex, ez);
+				entity.refreshPositionAndAngles(pos, random.nextFloat() * 360.0f, 0.0f);
+				entity.headYaw = entity.yaw;
+				entity.bodyYaw = entity.yaw;
+
+				if (nonpop) {
+					PlayerEntity player = world.getClosestPlayer(entity, 50.0);
+
+					if (player == null) {
+						continue;
+					}
+
+					/*Vec3d playerPos = player.getPos();
+					Vec3d entityPos = entity.getPos();
+					double dx = playerPos.x - entityPos.x;
+					double dz = playerPos.z - entityPos.z;
+
+					double horizontalSqrDist = dx * dx + dz * dz;
+
+					if (horizontalSqrDist < 40) {
+
+					}*/
+				}
+
+				entity.initialize(world, world.getLocalDifficulty(pos), SpawnReason.NATURAL, null, null);
+
+				if (SpawnRestriction.canSpawn(entity.getType(), world, SpawnReason.NATURAL, pos, world.getRandom())) {
+					world.spawnEntityAndPassengers(entity);
+				}
+			}
 		}
 	}
 }
