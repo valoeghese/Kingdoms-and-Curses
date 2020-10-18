@@ -14,6 +14,7 @@ import net.minecraft.world.biome.Biome;
 import net.minecraft.world.chunk.WorldChunk;
 import valoeghese.kingdomcurses.Curse;
 import valoeghese.kingdomcurses.KingdomsAndCurses;
+import valoeghese.kingdomcurses.WorldGen;
 import valoeghese.kingdomcurses.kingdom.Kingdom;
 
 @Mixin(SpawnHelper.class)
@@ -37,7 +38,7 @@ public class MixinSpawnHelper {
 			if (chunk.getBiomeArray().getBiomeForNoiseGen(0, 75 >> 3, 0).getCategory() != Biome.Category.OCEAN) {
 				int dist = kingdom.getCityCentre().manhattan(x, z);
 
-				if (Curse.getCurse(world.toServerWorld(), kingdom) == Curse.NECROMANCY && dist > KingdomsAndCurses.CITY_SIZE_OUTER + 16) {
+				if (Curse.getCurse(world.toServerWorld(), kingdom) == Curse.NECROMANCY && dist > WorldGen.CITY_SIZE_OUTER + 16) {
 					KingdomsAndCurses.spawnNecromancy(world.getRandom(), world, x, z, true, (ent, ex, ez) -> spawnPos);
 				}
 			} else if (Curse.getCurse(world.toServerWorld(), kingdom) == Curse.NECROMANCY) {
