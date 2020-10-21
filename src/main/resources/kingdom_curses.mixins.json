@@ -5,6 +5,7 @@
   "mixins": [
     "MixinHungerManager",
     "MixinLivingEntity",
+    "MixinNoiseChunkGenerator",
     "MixinPlayerEntity",
     "MixinServerWorld",
     "MixinSpawnHelper"

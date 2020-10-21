@@ -27,6 +27,7 @@ import net.minecraft.entity.SpawnReason;
 import net.minecraft.entity.SpawnRestriction;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
+import net.minecraft.entity.mob.HostileEntity;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.entity.player.PlayerEntity;
@@ -187,52 +188,71 @@ public class KingdomsAndCurses implements ModInitializer {
 	}
 
 	// Kingdom
-	public static void checkWorld(ServerWorld world) {
-		long seed = world.getSeed();
-
+	public static void checkWorld(long seed) {
 		if (seedCache == null || seedCache != seed) {
 			kingdomIdMap = new Int2ObjectArrayMap<>();
-			seedCache = world.getSeed();
+			seedCache = seed;
 		}
 	}
 
 	public static Kingdom getKingdom(ServerWorld world, int x, int z) {
-		checkWorld(world);
-		return kingdomById(world, stats(world.getChunk(x >> 4, z >> 4, ChunkStatus.LIQUID_CARVERS)).getKingdom(x & 0xF, z & 0xF, (int) world.getSeed()), x, z);
+		return getKingdom(world, x, z, ChunkStatus.LIQUID_CARVERS);
 	}
 
-	public static Kingdom kingdomById(ServerWorld world, int kingdom, int x, int z) {
-		checkWorld(world);
+	private static Kingdom getKingdom(ServerWorld world, int x, int z, ChunkStatus status) {
+		checkWorld(world.getSeed());
+		return kingdomById(world, stats(world.getChunk(x >> 4, z >> 4, status)).getKingdom(x & 0xF, z & 0xF, (int) world.getSeed()), x, z);
+	}
+
+	public static Kingdom calcKingdom(long seed, int x, int z) {
+		checkWorld(seed);
+
+		float sampleX = (float) x / Kingdom.SCALE;
+		float sampleZ = (float) z / Kingdom.SCALE;
+		Vec2f vec2f = Voronoi.sample(sampleX, sampleZ, (int) seed);
+		return kingdomById(seed, vec2f);
+	}
+
+	private static Kingdom kingdomById(ServerWorld world, int kingdom, int x, int z) {
+		checkWorld(world.getSeed());
 		return kingdomIdMap.computeIfAbsent(kingdom, id -> new Kingdom(world.getSeed(), id, Voronoi.sample(x / Kingdom.SCALE, z / Kingdom.SCALE, (int) world.getSeed())));
 	}
 
-	public static Kingdom kingdomById(ServerWorld world, Vec2f sample) {
-		checkWorld(world);
-		return kingdomIdMap.computeIfAbsent(sample.id(), id -> new Kingdom(world.getSeed(), id, sample));
+	static Kingdom kingdomById(long seed, Vec2f sample) {
+		checkWorld(seed);
+		return kingdomIdMap.computeIfAbsent(sample.id(), id -> new Kingdom(seed, id, sample));
+	}
+
+	// useful for limiting spawns
+	static boolean isNecromancyChunk(int cx, int cz) {
+		return ((cx * 136763 + cz * -8139467) & 0b1111) < 3;
 	}
 
 	public static void spawnNecromancy(Random random, ServerWorldAccess world, int x, int z, boolean nonpop, TriFunction<EntityType<?>, Integer, Integer, BlockPos> getEntitySpawn) {
-		int target = random.nextInt(3) + 1;
+		if (isNecromancyChunk(x >> 4, z >> 4)) {
+			int hostileEntityCount = world.getEntitiesByClass(HostileEntity.class, new Box(x, 0, z, x + 16, 256, z + 16), me -> true).size();
 
-		if (world.getEntitiesByClass(MobEntity.class, new Box(x, 0, z, x + 16, 256, z + 16), me -> true).size() < 60) {
-			for (int i = 0; i < target; ++i) {
-				int ex = x + random.nextInt(16);
-				int ez = z + random.nextInt(16);
+			if (hostileEntityCount < 19) {
+				int target = random.nextInt(3) + 1;
 
-				MobEntity entity = (random.nextInt(3) == 0 ? EntityType.ZOMBIE : EntityType.SKELETON).create(world.toServerWorld());
-				BlockPos pos = getEntitySpawn.apply(entity.getType(), ex, ez);
-				entity.refreshPositionAndAngles(pos, random.nextFloat() * 360.0f, 0.0f);
-				entity.headYaw = entity.yaw;
-				entity.bodyYaw = entity.yaw;
+				for (int i = 0; i < target; ++i) {
+					int ex = x + random.nextInt(16);
+					int ez = z + random.nextInt(16);
 
-				if (nonpop) {
-					PlayerEntity player = world.getClosestPlayer(entity, 50.0);
+					MobEntity entity = (random.nextInt(3) == 0 ? EntityType.ZOMBIE : EntityType.SKELETON).create(world.toServerWorld());
+					BlockPos pos = getEntitySpawn.apply(entity.getType(), ex, ez);
+					entity.refreshPositionAndAngles(pos, random.nextFloat() * 360.0f, 0.0f);
+					entity.headYaw = entity.yaw;
+					entity.bodyYaw = entity.yaw;
 
-					if (player == null) {
-						continue;
-					}
+					if (nonpop) {
+						PlayerEntity player = world.getClosestPlayer(entity, 50.0);
 
-					/*Vec3d playerPos = player.getPos();
+						if (player == null) {
+							continue;
+						}
+
+						/*Vec3d playerPos = player.getPos();
 					Vec3d entityPos = entity.getPos();
 					double dx = playerPos.x - entityPos.x;
 					double dz = playerPos.z - entityPos.z;
@@ -242,12 +262,13 @@ public class KingdomsAndCurses implements ModInitializer {
 					if (horizontalSqrDist < 40) {
 
 					}*/
-				}
+					}
 
-				entity.initialize(world, world.getLocalDifficulty(pos), SpawnReason.NATURAL, null, null);
+					entity.initialize(world, world.getLocalDifficulty(pos), SpawnReason.NATURAL, null, null);
 
-				if (SpawnRestriction.canSpawn(entity.getType(), world, SpawnReason.NATURAL, pos, world.getRandom())) {
-					world.spawnEntityAndPassengers(entity);
+					if (world.getBlockState(pos.up()).isAir() && world.getBlockState(pos).isAir() && SpawnRestriction.canSpawn(entity.getType(), world, SpawnReason.NATURAL, pos, world.getRandom())) {
+						world.spawnEntityAndPassengers(entity);
+					}
 				}
 			}
 		}

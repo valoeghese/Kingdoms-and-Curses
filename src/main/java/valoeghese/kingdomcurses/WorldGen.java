@@ -4,8 +4,12 @@ import java.util.Random;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
+import net.minecraft.block.DoorBlock;
+import net.minecraft.block.enums.DoubleBlockHalf;
+import net.minecraft.fluid.Fluids;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.world.ChunkRegion;
 import net.minecraft.world.WorldAccess;
 import net.minecraft.world.gen.ChunkRandom;
@@ -20,7 +24,7 @@ public final class WorldGen {
 			ServerWorld sworld = world.toServerWorld();
 
 			if (Curse.getCurse(sworld, KingdomsAndCurses.getKingdom(sworld, startX, startZ)) == Curse.NECROMANCY) {
-				if (rand.nextInt(512) == 0) {
+				if (KingdomsAndCurses.isNecromancyChunk(startX >> 4, startZ >> 4) && rand.nextInt(52) == 0) {
 					int remaining = 7;
 					int rBound = 256 - remaining;
 
@@ -30,12 +34,20 @@ public final class WorldGen {
 						int x = startX + xo;
 
 						for (int zo = 0; zo < 16; ++zo) {
-							if (rand.nextInt(Math.max(rBound--, 1)) == 0) {
+							if (rand.nextInt(Math.min(16, Math.max(rBound--, 1))) == 0) {
 								rBound++;
 								int z = startZ + zo;
 								int y = getHeightForGeneration(world, x, z);
 
 								world.setBlockState(mut.set(x, y, z), Blocks.STONE_BRICKS.getDefaultState(), 3);
+							} else if (rand.nextInt(80) == 0) {
+								int z = startZ + zo;
+								int y = getHeightForGeneration(world, x, z);
+								world.setBlockState(mut.set(x, y, z), Blocks.SKELETON_SKULL.getDefaultState(), 3);
+							}
+
+							if (remaining < 1) {
+								return;
 							}
 						}
 					}
@@ -50,10 +62,11 @@ public final class WorldGen {
 				ChunkRandom rand = new ChunkRandom(world.getSeed());
 				rand.setPopulationSeed(world.getSeed(), startX, startZ);
 
-				int seed = (int) world.getSeed();
+				long longSeed = world.getSeed();
+				int genSeed = (int) longSeed;
 				int seaLevel = world.getSeaLevel() - 2;
 				ServerWorld serverWorld = world.toServerWorld();
-				KingdomsAndCurses.checkWorld(serverWorld);
+				KingdomsAndCurses.checkWorld(serverWorld.getSeed());
 
 				boolean roadsX = 0 == ((startX >> 5) & 0b1);
 				boolean roadsZ = 0 == ((startZ >> 6) & 0b1);
@@ -77,12 +90,16 @@ public final class WorldGen {
 						if (dist > CITY_SIZE_OUTER) {
 							int y = getHeightForGeneration(world, x, z) - 1;
 
-							if (y > seaLevel /* + 1 */) { //TODO ?
+							if (y > seaLevel) { //TODO ?
+								if (y == seaLevel + 1) {
+									y++;
+								}
+
 								// Generate Kingdom Roads
-								Vec2i south = KingdomsAndCurses.kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, 1, seed)).getCityCentre();
-								Vec2i east = KingdomsAndCurses.kingdomById(serverWorld, kingdom.neighbourKingdomVec(1, 0, seed)).getCityCentre();
-								Vec2i north = KingdomsAndCurses.kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, -1, seed)).getCityCentre();
-								Vec2i west = KingdomsAndCurses.kingdomById(serverWorld, kingdom.neighbourKingdomVec(-1, 0, seed)).getCityCentre();
+								Vec2i south = KingdomsAndCurses.kingdomById(longSeed, kingdom.neighbourKingdomVec(0, 1, genSeed)).getCityCentre();
+								Vec2i east = KingdomsAndCurses.kingdomById(longSeed, kingdom.neighbourKingdomVec(1, 0, genSeed)).getCityCentre();
+								Vec2i north = KingdomsAndCurses.kingdomById(longSeed, kingdom.neighbourKingdomVec(0, -1, genSeed)).getCityCentre();
+								Vec2i west = KingdomsAndCurses.kingdomById(longSeed, kingdom.neighbourKingdomVec(-1, 0, genSeed)).getCityCentre();
 
 								// write road if at a road location
 								if (isNearLineBetween(centre, south, x, z, 7) || isNearLineBetween(centre, east, x, z, 7)
@@ -110,10 +127,10 @@ public final class WorldGen {
 							int startY = getHeightForGeneration(world, x, z);
 
 							if (startY > seaLevel) {
-								Vec2i south = KingdomsAndCurses.kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, 1, seed)).getCityCentre();
-								Vec2i east = KingdomsAndCurses.kingdomById(serverWorld, kingdom.neighbourKingdomVec(1, 0, seed)).getCityCentre();
-								Vec2i north = KingdomsAndCurses.kingdomById(serverWorld, kingdom.neighbourKingdomVec(0, -1, seed)).getCityCentre();
-								Vec2i west = KingdomsAndCurses.kingdomById(serverWorld, kingdom.neighbourKingdomVec(-1, 0, seed)).getCityCentre();
+								Vec2i south = KingdomsAndCurses.kingdomById(longSeed, kingdom.neighbourKingdomVec(0, 1, genSeed)).getCityCentre();
+								Vec2i east = KingdomsAndCurses.kingdomById(longSeed, kingdom.neighbourKingdomVec(1, 0, genSeed)).getCityCentre();
+								Vec2i north = KingdomsAndCurses.kingdomById(longSeed, kingdom.neighbourKingdomVec(0, -1, genSeed)).getCityCentre();
+								Vec2i west = KingdomsAndCurses.kingdomById(longSeed, kingdom.neighbourKingdomVec(-1, 0, genSeed)).getCityCentre();
 
 								// write gates
 								if (isNearLineBetween(centre, south, x, z, 7) || isNearLineBetween(centre, east, x, z, 7)
@@ -149,14 +166,15 @@ public final class WorldGen {
 							if (y > seaLevel) {
 								// Generate Cities
 								if (dist < houseLimit && xo == 8 && zo == 8) {
-									switch (rand.nextInt(6)) {
+									switch (rand.nextInt(7)) {
 									case 0:
 									case 1:
 									case 2:
 									case 3:
+									case 4:
 										generateHouse(world, rand, x, y, z);
 										break;
-									case 4:
+									case 5:
 										BlockPos.Mutable pos2 = new BlockPos.Mutable();
 
 										for (int xoo = -2; xoo <= 2; ++xoo) {
@@ -182,21 +200,28 @@ public final class WorldGen {
 												if (height == 2) {
 													pos2.setY(y + 3);
 													world.setBlockState(pos2, Blocks.WATER.getDefaultState(), 3);
+													world.getFluidTickScheduler().schedule(pos2, Fluids.WATER, 0);
 												}
 											}
 										}
 										break;
-									case 5: // nil
+									case 6: // nil
 										break;
 									}
 								}
 
 								if ((roadsX && xo < 2) || (roadsZ && zo < 3)) {
 									// Generate City Roads
-									pos.setY(y);
+									int roadY = y;
+
+									if (roadY == seaLevel + 1) {
+										roadY++;
+									}
+
+									pos.setY(roadY);
 									world.setBlockState(pos, Blocks.AIR.getDefaultState(), 3);
 
-									pos.setY(y - 1);
+									pos.setY(roadY - 1);
 									world.setBlockState(pos, Blocks.GRASS_PATH.getDefaultState(), 3);
 								}
 							}
@@ -220,6 +245,8 @@ public final class WorldGen {
 		// Generate City House
 		// Floor and Walls
 		BlockPos.Mutable pos2 = new BlockPos.Mutable();
+		final int doorSide = rand.nextBoolean() ? -5 : 4;
+		Direction facing = doorSide == 4 ? Direction.EAST : Direction.WEST;
 
 		for (int xoo = -5; xoo < 5; ++xoo) {
 			boolean xedge = xoo == -5 || xoo == 4;
@@ -233,6 +260,11 @@ public final class WorldGen {
 
 				if (!ServerWorld.isHeightInvalid(pos2)) {
 					world.setBlockState(pos2, Blocks.OAK_PLANKS.getDefaultState(), 3);
+
+					
+					if (zoo == 0 && xoo == 0) {
+						world.setBlockState(pos2.up(), Blocks.TORCH.getDefaultState(), 3);
+					}
 				}
 
 				if (xedge || zoo == -5 || zoo == 4) {
@@ -240,8 +272,19 @@ public final class WorldGen {
 						pos2.setY(y + yy);
 
 						if (!ServerWorld.isHeightInvalid(pos2)) {
-							if (y > 0 && y < 3) {
-								if (xedge && zoo == 0) {
+							if (yy > 0 && yy < 3) {
+								switch (yy) {
+								case 1:
+									world.setBlockState(pos2, Blocks.OAK_DOOR.getDefaultState().with(DoorBlock.FACING, facing), 3);
+									break;
+								case 2:
+									world.setBlockState(pos2, Blocks.OAK_DOOR.getDefaultState().with(DoorBlock.FACING, facing).with(DoorBlock.HALF, DoubleBlockHalf.UPPER), 3);
+									break;
+								default:
+									break;
+								}
+
+								if (xoo == doorSide && zoo == 0) {
 									continue;
 								}
 							}
@@ -306,7 +349,9 @@ public final class WorldGen {
 	}
 
 	private static boolean isNearLineBetween(Vec2i locA, Vec2i locB, int x, int y, int threshold) {
-		float m = (float) (locB.getY() - locA.getY()) / (float) (locB.getX() - locA.getX());
+		float dx = locB.getX() - locA.getX();
+		dx = dx == 0 ? Float.MIN_VALUE : dx;
+		float m = (float) (locB.getY() - locA.getY()) / (float) (dx);
 		float targetY = m * x + locA.getY() - m * locA.getX();
 		return Math.abs(y - targetY) < threshold;
 	}
