@@ -76,7 +76,7 @@ public class KingdomsAndCurses implements ModInitializer {
 				switch (curse) {
 				case NECROMANCY:
 					if (type == EntityType.ZOMBIE || type == EntityType.SKELETON) {
-						((LivingEntity) entity).applyStatusEffect(new StatusEffectInstance(StatusEffects.HEALTH_BOOST, Integer.MAX_VALUE, world.getRandom().nextInt(3) + 2, true, false));
+						((LivingEntity) entity).addStatusEffect(new StatusEffectInstance(StatusEffects.HEALTH_BOOST, Integer.MAX_VALUE, world.getRandom().nextInt(3) + 2, true, false));
 					}
 					break;
 				default:
